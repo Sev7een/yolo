@@ -113,6 +113,12 @@ class BboxLoss(nn.Module):
         super().__init__()
         self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
 
+        # NWD (Normalized Wasserstein Distance) options are read from model.args via v8DetectionLoss.
+        # Defaults keep original Ultralytics behavior.
+        self.use_nwd = False
+        self.nwd_weight = 0.5
+        self.nwd_sigma = 1.0
+
     def forward(
         self,
         pred_dist: torch.Tensor,
@@ -125,8 +131,24 @@ class BboxLoss(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
+
         iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        # Original Ultralytics normalization: weighted sum / sum(target_scores)
         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+
+        # Optional NWD mixing (keeps scale/normalization consistent with existing losses)
+        if self.use_nwd:
+            # nwd returns similarity in [0, 1] where higher is better, like IoU.
+            nwd = nwd_similarity(
+                pred_bboxes[fg_mask],
+                target_bboxes[fg_mask],
+                xywh=False,
+                sigma=self.nwd_sigma,
+            )
+            loss_nwd = ((1.0 - nwd).unsqueeze(-1) * weight).sum() / target_scores_sum
+            w = float(self.nwd_weight)
+            w = 0.0 if w < 0 else 1.0 if w > 1 else w
+            loss_iou = (1.0 - w) * loss_iou + w * loss_nwd
 
         # DFL loss
         if self.dfl_loss:
@@ -212,7 +234,26 @@ class v8DetectionLoss:
 
         self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = BboxLoss(m.reg_max).to(device)
+
+        # Configure optional NWD in bbox loss (safe defaults if args missing)
+        self._init_nwd_args(h)
+
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
+
+    def _init_nwd_args(self, args: Any) -> None:
+        """Initialize NWD-related args and attach them to bbox_loss.
+
+        Supports both SimpleNamespace-like and dict-like args.
+        """
+
+        def _get(name: str, default: Any):
+            if isinstance(args, dict):
+                return args.get(name, default)
+            return getattr(args, name, default)
+
+        self.bbox_loss.use_nwd = bool(_get("nwd", False))
+        self.bbox_loss.nwd_weight = float(_get("nwd_weight", 0.5))
+        self.bbox_loss.nwd_sigma = float(_get("nwd_sigma", 1.0))
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
         """Preprocess targets by converting to tensor format and scaling coordinates."""
@@ -847,3 +888,63 @@ class TVPSegmentLoss(TVPDetectLoss):
         vp_loss = self.vp_criterion((vp_feats, pred_masks, proto), batch)
         cls_loss = vp_loss[0][2]
         return cls_loss, vp_loss[1]
+
+
+def wasserstein_distance(box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, eps: float = 1e-9) -> torch.Tensor:
+    """Compute a simple 2D Wasserstein-like distance between boxes.
+
+    This is commonly used for NWD loss where boxes are modeled as 2D Gaussians.
+
+    Args:
+        box1 (torch.Tensor): (N, 4) boxes
+        box2 (torch.Tensor): (N, 4) boxes
+        xywh (bool): True if boxes are in xywh, False if in xyxy
+        eps (float): Small epsilon for numerical stability
+
+    Returns:
+        torch.Tensor: (N,) distances (>=0)
+    """
+    if box1.numel() == 0:
+        return torch.zeros((0,), device=box1.device, dtype=box1.dtype)
+
+    if xywh:
+        b1_cx, b1_cy, b1_w, b1_h = box1.unbind(-1)
+        b2_cx, b2_cy, b2_w, b2_h = box2.unbind(-1)
+    else:
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1.unbind(-1)
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2.unbind(-1)
+        b1_cx = (b1_x1 + b1_x2) / 2
+        b1_cy = (b1_y1 + b1_y2) / 2
+        b1_w = (b1_x2 - b1_x1).clamp(min=eps)
+        b1_h = (b1_y2 - b1_y1).clamp(min=eps)
+        b2_cx = (b2_x1 + b2_x2) / 2
+        b2_cy = (b2_y1 + b2_y2) / 2
+        b2_w = (b2_x2 - b2_x1).clamp(min=eps)
+        b2_h = (b2_y2 - b2_y1).clamp(min=eps)
+
+    p1 = (b1_cx - b2_cx).pow(2) + (b1_cy - b2_cy).pow(2)
+    p2 = ((b1_w - b2_w) / 2).pow(2) + ((b1_h - b2_h) / 2).pow(2)
+    return (p1 + p2).clamp(min=0)
+
+
+def nwd_similarity(box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, sigma: float = 1.0) -> torch.Tensor:
+    """Compute Normalized Wasserstein Distance (NWD) similarity in (0, 1].
+
+    Args:
+        box1 (torch.Tensor): (N, 4)
+        box2 (torch.Tensor): (N, 4)
+        xywh (bool): input format
+        sigma (float): normalization factor (larger => less penalty)
+
+    Returns:
+        torch.Tensor: (N,) similarity, higher is better
+    """
+    # paper uses exp(-sqrt(d)/C). Here we keep sigma as C.
+    dist = wasserstein_distance(box1, box2, xywh=xywh)
+    sigma = max(float(sigma), 1e-6)
+    return torch.exp(-torch.sqrt(dist) / sigma)
+
+
+# Backward-compat alias (in case your code or notebooks call this name)
+Wasserstein = wasserstein_distance
+

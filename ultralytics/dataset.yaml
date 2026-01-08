@@ -1,0 +1,11 @@
+path: dataset1
+
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: 点状热斑
+  1: 遮挡
+  2: 条状热斑
+  3: 板件缺失
