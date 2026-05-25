@@ -947,4 +947,3 @@ def nwd_similarity(box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, si
 
 # Backward-compat alias (in case your code or notebooks call this name)
 Wasserstein = wasserstein_distance
-
