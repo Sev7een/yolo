@@ -5,12 +5,12 @@ import shutil
 # --- 配置区域 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # 1. 修改文件夹名称为 dataset1
-DATASET_DIR = os.path.join(BASE_DIR, 'dataset1')
+DATASET_DIR = os.path.join(BASE_DIR, "dataset1")
 
 # 假设你的原始数据目前都在 images/train 和 labels/train 下
 # 脚本将从这里把 val 和 test 的数据“挖”走，剩下的就是 train
-SOURCE_IMAGES_DIR = os.path.join(DATASET_DIR, 'images', 'train')
-SOURCE_LABELS_DIR = os.path.join(DATASET_DIR, 'labels', 'train')
+SOURCE_IMAGES_DIR = os.path.join(DATASET_DIR, "images", "train")
+SOURCE_LABELS_DIR = os.path.join(DATASET_DIR, "labels", "train")
 
 TRAIN_RATIO = 0.8
 VAL_RATIO = 0.1
@@ -27,7 +27,7 @@ def split_dataset():
         return
 
     # 获取所有图片文件
-    image_files = [f for f in os.listdir(SOURCE_IMAGES_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+    image_files = [f for f in os.listdir(SOURCE_IMAGES_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))]
 
     if not image_files:
         print("错误：源目录下没有找到图片文件。")
@@ -44,8 +44,8 @@ def split_dataset():
 
     # 我们只需要把 Val 和 Test 的文件找出来移走，剩下的自然就是 Train
     # 所以这里不需要定义 train_files，它们原地不动即可
-    val_files = image_files[train_count: train_count + val_count]
-    test_files = image_files[train_count + val_count:]
+    val_files = image_files[train_count : train_count + val_count]
+    test_files = image_files[train_count + val_count :]
 
     print(f"检测到总图片: {total} 张")
     print(f"准备移动 -> 验证集: {len(val_files)} 张, 测试集: {len(test_files)} 张")
@@ -54,8 +54,8 @@ def split_dataset():
     # 执行移动操作的函数
     def move_subset(subset_name, files):
         # 创建目标文件夹 (例如 dataset1/images/val)
-        target_img_dir = os.path.join(DATASET_DIR, 'images', subset_name)
-        target_lbl_dir = os.path.join(DATASET_DIR, 'labels', subset_name)
+        target_img_dir = os.path.join(DATASET_DIR, "images", subset_name)
+        target_lbl_dir = os.path.join(DATASET_DIR, "labels", subset_name)
 
         os.makedirs(target_img_dir, exist_ok=True)
         os.makedirs(target_lbl_dir, exist_ok=True)
@@ -70,7 +70,7 @@ def split_dataset():
 
             # 2. 移动对应的标签
             # 假设标签和图片同名，只是后缀是 .txt
-            label_name = os.path.splitext(img_file)[0] + '.txt'
+            label_name = os.path.splitext(img_file)[0] + ".txt"
             src_label_path = os.path.join(SOURCE_LABELS_DIR, label_name)
             dst_label_path = os.path.join(target_lbl_dir, label_name)
 
@@ -85,14 +85,14 @@ def split_dataset():
 
     # 开始移动
     if len(val_files) > 0:
-        move_subset('val', val_files)
+        move_subset("val", val_files)
 
     if len(test_files) > 0:
-        move_subset('test', test_files)
+        move_subset("test", test_files)
 
     print("\n数据集划分全部完成！")
     print(f"现在 '{SOURCE_IMAGES_DIR}' 中只剩下训练集数据。")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     split_dataset()
