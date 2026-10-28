@@ -1,4 +1,5 @@
 import os
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Ensure we import the local repo's `ultralytics` package (not site-packages)
@@ -9,8 +10,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]  # .../E:/ultralytics
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from ultralytics import YOLO
 import ultralytics as _ultralytics
+from ultralytics import YOLO
 
 
 def main():

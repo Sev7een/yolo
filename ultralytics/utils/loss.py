@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
@@ -947,4 +947,3 @@ def nwd_similarity(box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, si
 
 # Backward-compat alias (in case your code or notebooks call this name)
 Wasserstein = wasserstein_distance
-
